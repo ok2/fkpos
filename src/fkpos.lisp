@@ -1,134 +1,178 @@
-(in-package :cl-user)
-
-(defpackage fkpos
-  (:nicknames :fkp)
-  (:use :cl))
-
 (in-package :fkpos)
 
+(defun kw (sym) (intern (symbol-name sym) "KEYWORD"))
+
+(defstruct ts
+  (year 1970 :type (integer 1 3000))
+  (month 1 :type (integer 1 12))
+  (day 1 :type (integer 1 31))
+  (hour 0 :type (integer 0 23))
+  (minute 0 :type (integer 0 59))
+  (second 0 :type (integer 0 60))
+  (zone 0 :type (rational -24 24)))
+
+(defun timestamp ()
+  (multiple-value-bind (second minute hour date month year day dl-p zone)
+      (get-decoded-time)
+    (make-ts :year year
+             :month month
+             :day date
+             :hour hour
+             :minute minute
+             :second second
+             :zone zone)))
+
+(defgeneric str (o))
+
+(defmethod str ((o ts))
+  (let ((z (ts-zone o)))
+    (format nil "~4,'0D-~2,'0D-~2,'0DT~2,'0D:~2,'0D:~2,'0D~C~2,'0D"
+            (ts-year o) (ts-month o) (ts-day o) (ts-hour o) (ts-minute o) (ts-second o)
+            (if (< z 0) #\- #\+) (abs z))))
+
 (defgeneric ls (o))
-(defgeneric new (o type))
+(defgeneric new (o ot &optional title))
+(defgeneric fv (o field value))
 (defgeneric rm (o title))
-(defgeneric cd (o &optional title))
-(defgeneric pwd (o))
+(defgeneric co (o &optional title))
+(defgeneric pp (o))
 (defgeneric ln (o n))
 (defgeneric info (o))
+(defgeneric obj (o path))
+(defgeneric red (o))
 
 (defvar *next-id* 1)
 
 (defclass db-base () ())
 
 (defclass database (db-base)
-  ((title :initarg :name :accessor title)
-   (id :initform (incf *next-id*) :reader id)
-   (children :initform (make-hash-table :test 'eq) :accessor children)
+  ((title :initarg :title :accessor title :type keyword)
+   (id :initform (incf *next-id*) :reader id :type number)
+   (children :initform (make-hash-table :test 'eq) :accessor children :type hash-table)
    (parent :initarg :parent :initform nil :accessor parent)))
+
+(defparameter *objects* (make-hash-table))
 
 (defmethod initialize-instance :after ((o database) &rest initargs)
   (setf (gethash (id o) *objects*) o))
 
 (defmethod info ((o database))
   (with-slots (id title children parent) o
-    (list id title (hash-table-count children)
-          (and parent (title parent)))))
+    (list id title
+          (class-name (class-of o))
+          (hash-table-count children)
+          (pp o))))
 
 (defclass root (database) ())
 (defclass transactions (database) ())
 (defclass components (database) ())
-(defclass groups (database) ())
+(defclass categories (database) ())
+(defclass customers (database) ())
 
 (defmethod initialize-instance :after ((o root) &rest initargs)
   (loop for (name . type) in (list (cons :transactions 'transactions)
                                    (cons :components 'components)
-                                   (cons :groups 'groups))
+                                   (cons :customers 'customers)
+                                   (cons :categories 'categories))
         do (setf (gethash name (children o))
-                 (make-instance type :name name :parent o))))
+                 (make-instance type :title name :parent o))))
 
-(defparameter *objects* (make-hash-table))
-(defparameter *db* (make-instance 'root :name :root))
+(defparameter *db* (make-instance 'root :title :root))
 (defparameter *curr-db* *db*)
 
-(defclass reference (db-base)
-  ((ref :initarg :ref :reader ref)))
+(defmethod obj ((o database) path)
+  (if (not path) o
+      (let* ((p (car path))
+             (n (gethash p (children o))))
+        (unless (and p n) (error "No object with title ~A found." p))
+        (obj (ref n) (cdr path)))))
 
+(defmethod pp ((o database))
+  (labels ((p (p) (if p (cons (title p) (p (parent p))) nil)))
+    (reverse (p o))))
+
+(defclass reference (db-base)
+  ((ref :initarg :ref :reader ref-id :type number)))
+
+(defmethod ref ((o reference)) (gethash (ref-id o) *objects*))
+(defmethod ref ((o database)) o)
 (defmethod title ((o reference)) (title (ref o)))
 (defmethod id ((o reference)) (id (ref o)))
 (defmethod children ((o reference)) (id (ref o)))
-
 (defmethod ls ((o reference)) (ls (ref o)))
-(defmethod new ((o reference) (type symbol)) (new (ref o) type))
+(defmethod new ((o reference) (ot symbol) &optional title) (new (ref o) ot title))
 (defmethod rm ((o reference) (title symbol)) (rm (ref o) title))
-(defmethod cd ((o reference) &optional title) (cd (ref o) title))
-(defmethod pwd ((o reference)) (pwd (ref o)))
-(defmethod ln ((o reference) (n database)) (ln (ref o) n))
+(defmethod co ((o reference) &optional title) (co (ref o) title))
+(defmethod pp ((o reference)) (pp (ref o)))
 
 (defmethod ls ((o database))
   (loop for c being the hash-value of (children o)
         collect (cons (title c) (id c)) into res
         finally (return (mapcar #'car (sort res #'< :key #'cdr)))))
 
-(defmethod pwd ((o database))
-  (title *curr-db*))
+(defmethod co ((o database) &optional title)
+  (setf *curr-db* (cond ((eql title :parent) (parent o))
+                        (title (ref (gethash title (children o) o)))
+                        (t *db*))))
 
-(defmethod cd ((o database) &optional title)
-  (if title (setf *curr-db* (gethash title (children o) o))
-    (setf *curr-db* (parent o))))
+(defmacro defmodel (name base parent args &optional refs)
+  (let ((ref (intern (format nil "~A-REF" name))))
+    `(progn
+       (defclass ,name (,base)
+         ,(loop for (name type default) in args collect
+                `(,name :initarg ,(kw name)
+                        :type ,type
+                        :initform ,default
+                        :accessor ,name)))
+       (defclass ,ref (reference) ())
 
-(defclass group (database)
-  ((title :initarg :title :accessor title)))
+       (defmethod new ((o ,parent) (ot (eql ,(kw name))) &optional title)
+         (let* ((title (if title title (intern (format nil
+                                                          ,(format nil "~A-~~D" name)
+                                                          (incf *next-id*))
+                                                  "KEYWORD")))
+                (object (make-instance ',name :title title :parent o)))
+           (prog1 title
+             (setf (gethash (title object) (children o)) object))))
 
-(defclass group-ref (reference) ())
+       ,@(loop for (r b ff) in refs
+               for rr = (intern (format nil "~A-REF" r))
+               collect
+               `(defmethod ln ((o ,name) (n ,r))
+                  (let ((id (id n)) (title (title n)))
+                    (prog1 title
+                      ,@(cond ((not ff) nil)
+                              ((symbolp ff)
+                               `((unless (,ff n)
+                                   (error (format nil "Filter ~A failed." ',ff)))))
+                              ((consp ff)
+                               `((unless (flet ((x ,@ff)) (x o))
+                                   (error (format nil "Filter ~A failed." ',ff))))))
+                      (unless (gethash title (children o))
+                        (setf (gethash title (children o))
+                              (make-instance ',rr :ref id))
+                        ,(when b `(ln n o))))))
+               when b collect
+                 `(defmethod ln ((o ,r) (n ,name))
+                    (let ((id (id n)) (title (title n)))
+                      (prog1 title
+                        (unless (gethash title (children o))
+                          (setf (gethash title (children o))
+                                (make-instance ',ref :ref id))
+                          ,(when b `(ln n o)))))))
 
-(defmethod new ((o groups) (title symbol))
-  (let ((group (make-instance 'group
-                              :title title
-                              :parent o)))
-    (setf (gethash (title group) (children o)) group)))
+       (defmethod info ((o ,name))
+         (let ((info (call-next-method))
+               (fields (list ,@(loop for (name type default repr) in args append
+                                        `(,(kw name)
+                                          ,(if repr `(,repr (,name o))
+                                               `(,name o)))))))
+           (destructuring-bind (id title type children &rest rest) info
+             `(,id ,title ,type ,children ,fields ,@rest))))
 
-(defclass component (database)
-  ((title :initarg :title :accessor title)
-   (descr :initarg :descr :accessor descr)
-   (units :initarg :units :accessor units)
-   (price :initarg :price :accessor price)
-   (sell :initarg :sell :initform nil :accessor sell)))
-(defclass component-ref (reference) ())
+       (defmethod fv ((o ,name) (field symbol) value)
+         (cond ,@(loop for (name type) in args collect
+                       `((eql field ,(kw name))
+                         (setf (,name o) (coerce value ',type))))
+               (t (error (format nil "Unknown field ~A in object ~A" field ',name))))))))
 
-(defmethod ln ((o group) (n component))
-  (let ((id (id n)))
-    (or (gethash id (children o))
-        (prog1 (setf (gethash id (children o))
-                     (make-instance 'component-ref :ref id))
-          (ln n o)))))
-
-(defmethod ln ((o component) (n group))
-  (let ((id (id n)))
-    (or (gethash id (children o))
-        (prog1 (setf (gethash id (children o))
-                     (make-instance 'group-ref :ref id))
-          (ln n o)))))
-
-(defclass transaction (database)
-  ((ts :initarg :ts :accessor ts)
-   (sell :initarg :sell :initform nil :accessor sell)))
-(defclass transaction-ref (reference) ())
-
-(defmethod ln ((o transaction) (n component))
-  (let ((id (id n)))
-    (setf (gethash id (children o))
-          (make-instance 'component-ref :id id))))
-
-(defpackage fkpos-cli
-  (:nicknames :fkpc)
-  (:use :cl)
-  (:export :ls :new :edit :rm :cd :pwd))
-
-(in-package :fkpos-cli)
-
-(defun ls () (fkpos::ls fkpos::*curr-db*))
-(defun new (title) (fkpos::new fkpos::*curr-db* title))
-(defun edit (name) (fkpos::ls fkpos::*curr-db* name))
-(defun rm (name) (fkpos::ls fkpos::*curr-db* name))
-(defun cd (&optional name) (fkpos::cd fkpos::*curr-db* name))
-(defun pwd () (fkpos::pwd fkpos::*curr-db*))
-(defun ln (n) (fkpos::ln fkpos::*curr-db* n))
-(defun info () (fkpos::info fkpos::*curr-db*))

@@ -30,24 +30,30 @@
             (ts-year o) (ts-month o) (ts-day o) (ts-hour o) (ts-minute o) (ts-second o)
             (if (< z 0) #\- #\+) (abs z))))
 
+; read methods
 (defgeneric ls (o))
-(defgeneric new (o ot &optional title))
-(defgeneric fv (o field value))
-(defgeneric rm (o title))
 (defgeneric co (o &optional title))
 (defgeneric pp (o))
-(defgeneric ln (o n))
 (defgeneric info (o))
 (defgeneric obj (o path))
-(defgeneric red (o))
+
+; write methods
+(defgeneric new (o ot &optional title))
+(defgeneric rm (o title))
+(defgeneric ln (o n))
+(defgeneric fv (o field value))
 
 (defvar *next-id* 1)
+(defparameter *db-path* #P"db/")
+
+(defun next-id ()
+  (incf *next-id*))
 
 (defclass db-base () ())
 
 (defclass database (db-base)
   ((title :initarg :title :accessor title :type keyword)
-   (id :initform (incf *next-id*) :reader id :type number)
+   (id :initform (next-id) :initarg :id :reader id :type number)
    (children :initform (make-hash-table :test 'eq) :accessor children :type hash-table)
    (parent :initarg :parent :initform nil :accessor parent)))
 
@@ -94,16 +100,23 @@
 (defclass reference (db-base)
   ((ref :initarg :ref :reader ref-id :type number)))
 
+(defmethod info ((o reference))
+  (list (slot-value o 'id) (title o)
+        (class-name (class-of o))
+        0
+        (pp o)))
+
 (defmethod ref ((o reference)) (gethash (ref-id o) *objects*))
 (defmethod ref ((o database)) o)
 (defmethod title ((o reference)) (title (ref o)))
 (defmethod id ((o reference)) (id (ref o)))
 (defmethod children ((o reference)) (id (ref o)))
 (defmethod ls ((o reference)) (ls (ref o)))
-(defmethod new ((o reference) (ot symbol) &optional title) (new (ref o) ot title))
-(defmethod rm ((o reference) (title symbol)) (rm (ref o) title))
 (defmethod co ((o reference) &optional title) (co (ref o) title))
 (defmethod pp ((o reference)) (pp (ref o)))
+(defmethod new ((o reference) (ot symbol) &optional title) (new (ref o) ot title))
+(defmethod rm ((o reference) (title symbol)) (rm (ref o) title))
+(defmethod fv ((o reference) (field symbol) value) (fv (ref o) field value))
 
 (defmethod ls ((o database))
   (loop for c being the hash-value of (children o)
@@ -114,6 +127,54 @@
   (setf *curr-db* (cond ((eql title :parent) (parent o))
                         (title (ref (gethash title (children o) o)))
                         (t *db*))))
+
+(defun construct-path (object &optional path)
+  (if (eql (title object) :root)
+      (append (pathname-directory *db-path*) path)
+      (construct-path (parent object)
+                      (cons (symbol-name (title object))
+                            path))))
+
+(defun object-path (object)
+  (let ((path (make-pathname :directory (construct-path object) :name ".DEFINITION"))
+        (dat (make-pathname :type "DAT"))
+        (tmp (make-pathname :type "TMP")))
+    (values (merge-pathnames dat path)
+            (merge-pathnames tmp path))))
+
+(defun write-object (object)
+  (multiple-value-bind (dat tmp) (object-path object)
+    (ensure-directories-exist dat)
+    (let* ((data (info object)))
+      (with-open-file (fd dat :direction :output
+                              :if-exists :supersede
+                              :if-does-not-exist :create)
+        (format fd "~S~%" data)))
+    (loop for child being each hash-value in (children object)
+          do (write-object child))))
+
+(defun read-object (&optional parent path)
+  (let* ((op (loop for x in path collect (symbol-name x)))
+         (dp (make-pathname :directory (construct-path *db* op)
+                            :name ".DEFINITION"
+                            :type "DAT"))
+         (dat (with-open-file (fd dp :direction :input)
+                (read fd)))
+         (parent (or parent *db*)))
+    (destructuring-bind (id title class-name childs-num slots path) dat
+      (aif (gethash title (children parent))
+           (loop for (slot . value) in (cons (list :title title) slots)
+                 do (setf (slot-value it slot) value)
+                 finally (return it))
+           (progn
+             (when (< id *next-id*)
+               (error "Unusable ID: ~S" id))
+             (setf (gethash id (children parent))
+                   (apply #'make-instance
+                          (find-class class-name)
+                          :id
+                          :parent parent
+                          slots)))))))
 
 (defmacro defmodel (name base parent args &optional refs)
   (let ((ref (intern (format nil "~A-REF" name))))
@@ -127,13 +188,14 @@
        (defclass ,ref (reference) ())
 
        (defmethod new ((o ,parent) (ot (eql ,(kw name))) &optional title)
-         (let* ((title (if title title (intern (format nil
-                                                          ,(format nil "~A-~~D" name)
-                                                          (incf *next-id*))
-                                                  "KEYWORD")))
+         (let* ((title (if title title (intern (format nil ,(format nil "~A-~~D" name) (next-id))
+                                               "KEYWORD")))
                 (object (make-instance ',name :title title :parent o)))
            (prog1 title
              (setf (gethash (title object) (children o)) object))))
+
+       (defmethod save ((o ,name))
+         )
 
        ,@(loop for (r b ff) in refs
                for rr = (intern (format nil "~A-REF" r))

@@ -1,5 +1,8 @@
 (in-package :fkpos-cli)
 
+(eval-when (:execute :compile-toplevel :load-toplevel)
+  (declaim (optimize (safety 3) (debug 3) (speed 0) (space 0) (compilation-speed 0))))
+
 (defun ts () (fkpos:str (fkpos:timestamp)))
 (defun ls () (fkpos:ls fkpos:*curr-db*))
 (defun ll ()
@@ -9,15 +12,21 @@
   (if title (fkpos:new fkpos:*curr-db* ot title)
       (fkpos:new fkpos:*curr-db* ot)))
 (defun fv (field value &rest rest)
-  (prog1 nil
-    (fkpos:fv fkpos:*curr-db* field value)
+  (prog1 (fkpos:fv fkpos:*curr-db* field value)
     (when rest (apply #'fv (first rest) (second rest) (cddr rest)))))
 (defun rm (name) (fkpos:rm fkpos:*curr-db* name))
-(defun co (&optional name) (fkpos:co fkpos:*curr-db* name))
+(defun co (&rest names)
+  (if (not names) (fkpos:co fkpos:*curr-db*)
+      (loop for name in names
+            for obj = (if (eql name :root)
+                          (fkpos:co fkpos:*curr-db*)
+                          (fkpos:co fkpos:*curr-db* name))
+            finally (return obj))))
 (defun pp () (fkpos:pp fkpos:*curr-db*))
 (defun ln (n) (fkpos:ln fkpos:*curr-db* n))
 (defun info () (fkpos:info fkpos:*curr-db*))
 (defun obj (&rest path) (fkpos:obj fkpos:*db* path))
+(defun value (currency) (fkpos:value fkpos:*curr-db* currency))
 
 ;(co)
 ;(co :categories)

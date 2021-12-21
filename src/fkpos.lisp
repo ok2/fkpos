@@ -1,8 +1,5 @@
 (in-package :fkpos)
 
-(eval-when (:execute :compile-toplevel :load-toplevel)
-  (declaim (optimize (safety 3) (debug 3) (speed 0) (space 0) (compilation-speed 0))))
-
 (defun kw (sym)
   (intern (symbol-name sym) "KEYWORD"))
 
@@ -33,11 +30,11 @@
              :second second
              :zone zone)))
 
-(defgeneric str (o))
+(defgeneric repr (o))
 (defgeneric ut (o))
 (defgeneric ts2list (o))
 
-(defmethod str ((o ts))
+(defmethod repr ((o ts))
   (let ((z (ts-zone o)))
     (format nil "~4,'0D-~2,'0D-~2,'0DT~2,'0D:~2,'0D:~2,'0D~C~2,'0D"
             (ts-year o) (ts-month o) (ts-day o) (ts-hour o) (ts-minute o) (ts-second o)
@@ -67,7 +64,7 @@
 (defgeneric pp (o))
 (defgeneric info (o))
 (defgeneric obj (o path))
-(defgeneric value (o currency))
+(defgeneric value (o currency &key))
 
 ; write methods
 (defgeneric new (o ot &optional title))
@@ -226,7 +223,7 @@
 (defmethod new ((o reference) (ot symbol) &optional title) (new (ref o) ot title))
 (defmethod rm ((o reference) (title symbol)) (rm (ref o) title))
 (defmethod fv ((o reference) (field symbol) value) (fv (ref o) field value))
-(defmethod value ((o reference) (currency symbol)) (value (ref o) currency))
+(defmethod value ((o reference) (currency symbol) &key) (value (ref o) currency))
 
 (defmethod ls ((o database))
   (loop for c being the hash-value of (children o)

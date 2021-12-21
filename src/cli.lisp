@@ -1,9 +1,6 @@
 (in-package :fkpos-cli)
 
-(eval-when (:execute :compile-toplevel :load-toplevel)
-  (declaim (optimize (safety 3) (debug 3) (speed 0) (space 0) (compilation-speed 0))))
-
-(defun ts () (fkpos:str (fkpos:timestamp)))
+(defun ts () (fkpos:repr (fkpos:timestamp)))
 (defun ls () (fkpos:ls fkpos:*curr-db*))
 (defun ll ()
   (loop for n being the hash-value of (fkpos:children fkpos:*curr-db*)

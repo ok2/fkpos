@@ -3,10 +3,11 @@
 (defpackage fkpos
   (:nicknames :fkp)
   (:use :cl :let-over-lambda :bordeaux-threads
-        :split-sequence :cl-json :parse-number)
+        :split-sequence :cl-json :parse-number
+        :drakma :cl-who)
   (:export :*curr-db* :*db* :*next-id* :init
            :new :ls :fv :rm :pp :co :ln :info :obj
-           :str :children :ref :timestamp :value
+           :repr :children :ref :timestamp :value
            :start :stop))
 
 (defpackage fkpos-cli

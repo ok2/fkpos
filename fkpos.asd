@@ -9,13 +9,16 @@
                "fiveam"
                "split-sequence"
                "cl-json"
-               "parse-number")
+               "parse-number"
+               "cl-who"
+               "drakma")
   :components ((:module "src"
                 :components ((:file "packages")
                              (:file "fkpos" :depends-on ("packages"))
                              (:file "model" :depends-on ("fkpos"))
                              (:file "cli" :depends-on ("model" "fkpos"))
-                             (:file "http" :depends-on ("fkpos"))))
+                             (:file "page" :depends-on ("fkpos"))
+                             (:file "http" :depends-on ("page"))))
                (:module "test"
                 :components ((:file "package")
                              (:file "main" :depends-on ("package")))))

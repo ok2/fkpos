@@ -1,8 +1,5 @@
 (in-package :fkpos)
 
-(eval-when (:execute :compile-toplevel :load-toplevel)
-  (declaim (optimize (safety 3) (debug 3) (speed 0) (space 0) (compilation-speed 0))))
-
 (defun units-check (u)
   (cond ((eql u :g) :g)
         ((eql u :l) :l)
@@ -33,7 +30,7 @@
         ((eql p :email) :email)
         ((eql p :organisation) :organisation)
         ((eql p :org-number) :org-number)
-        (t :ident)))
+        (t :unknown)))
 
 (defmodel category categories categories
   ((name string "")
@@ -72,8 +69,8 @@
    (comment string "")))
 
 (defmodel ident database customer
-  ((ident string "")
-   (type symbol :ident nil ident-check)))
+  ((data string "")
+   (category symbol :ident nil ident-check)))
 
 (defmodel transaction transactions transactions
   ((ts ts (timestamp) ts2list list2ts)
@@ -102,15 +99,15 @@
   ((customer nil)
    (transaction t)))
 
-(defmethod value ((o cons) (currency symbol))
+(defmethod value ((o cons) (currency symbol) &key)
   (unless (eql (cdr o) currency)
     (error "Currency not matching: ~S -> ~S" (cdr o) currency))
   (cons (car o) currency))
 
-(defmethod value ((o payment) (currency symbol))
+(defmethod value ((o payment) (currency symbol) &key)
   (value (amount o) currency))
 
-(defmethod value ((o transaction) (currency symbol))
+(defmethod value ((o transaction) (currency symbol) &key)
   (let ((value 0))
     (loop for order being each hash-value of (children o)
           if (eql (class-of (ref order)) (find-class 'order)) do

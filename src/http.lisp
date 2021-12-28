@@ -1,3 +1,5 @@
+;;; -*- Mode: LISP; Syntax: COMMON-LISP; Package: FKPOS; Base: 10 -*-
+
 (in-package :fkpos)
 
 (defvar *http-server* nil)
@@ -29,25 +31,15 @@
   (ignore-errors
    (coerce (find-symbol command :fkpos-cli) 'function)))
 
-(hunchentoot:create-folder-dispatcher-and-handler "/js/" "./" "application/javascript")
-(hunchentoot:create-folder-dispatcher-and-handler "/css/" "./" "text/css")
-
-(defun default-uri (r)
-  (let* ((uri (hunchentoot:request-uri* r)))
-    (cond ((and (> (length uri) 3)
-                (string= (subseq uri 0 4) "/js/")) nil)
-          ((and (> (length uri) 4)
-                (string= (subseq uri 0 5) "/css/")) nil)
-          (t t))))
-
-(hunchentoot:define-easy-handler (fkpos :uri #'default-uri)
+(hunchentoot:define-easy-handler (fkpos :uri (lambda (r) t))
     (command args)
   (setf (hunchentoot:content-type*) "text/plain")
   (let ((state-header "X-KPOS-State")
         (path-header "X-KPOS-Path")
         (cmd-header "X-KPOS-Command")
         (path (parse-path))
-        (cmd (and command (find-symbol command :fkpos-cli))))
+        (cmd (and command (find-symbol command :fkpos-cli)))
+        (cl-who:*attribute-quote-char* #\"))
     (if (not cmd)
         (prog1 (default-page)
           (setf (hunchentoot:content-type*) "text/html")
@@ -77,6 +69,28 @@
               (setf (hunchentoot:content-type*) "text/html")
               (setf (hunchentoot:header-out state-header)
                     (format nil "Path ~A not found" path))))))))
+
+(push (hunchentoot:create-folder-dispatcher-and-handler "/js/" "./js/" "application/javascript")
+      hunchentoot:*dispatch-table*)
+
+(push (hunchentoot:create-folder-dispatcher-and-handler "/css/" "./css/" "text/css")
+      hunchentoot:*dispatch-table*)
+
+(hunchentoot:define-easy-handler (fkpos-js :uri "/fkpos/fkpos.js") ()
+  (setf (hunchentoot:content-type*) "application/json")
+  (default-js))
+
+(hunchentoot:define-easy-handler (fkpos-css :uri "/fkpos/fkpos.css") ()
+  (setf (hunchentoot:content-type*) "text/css")
+  (default-css))
+
+(hunchentoot:define-easy-handler (fkpos-index :uri "/index.html") ()
+  (setf (hunchentoot:content-type*) "text/html")
+  (default-page))
+
+(hunchentoot:define-easy-handler (fkpos-html :uri "/") ()
+  (setf (hunchentoot:content-type*) "text/html")
+  (default-page))
 
 (defun start (&optional (port 4242))
   (setf *http-server* (make-instance 'hunchentoot:easy-acceptor :port port))

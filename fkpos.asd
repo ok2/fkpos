@@ -11,7 +11,9 @@
                "cl-json"
                "parse-number"
                "cl-who"
-               "drakma")
+               "drakma"
+               "parenscript"
+               "css-lite")
   :components ((:module "src"
                 :components ((:file "packages")
                              (:file "fkpos" :depends-on ("packages"))

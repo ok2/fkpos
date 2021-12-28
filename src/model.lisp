@@ -1,3 +1,5 @@
+;;; -*- Mode: LISP; Syntax: COMMON-LISP; Package: FKPOS; Base: 10 -*-
+
 (in-package :fkpos)
 
 (defun units-check (u)
